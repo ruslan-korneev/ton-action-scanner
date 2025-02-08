@@ -1,0 +1,107 @@
+name: Continuous Integration
+
+on: [push]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poetry
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        id: cp312
+        with:
+          python-version: "3.12.7"
+          cache: "poetry"
+      - run: poetry run poetry install
+        if: steps.cp312.outputs.cache-hit != 'true'
+
+  linter:
+    name: Linter
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poetry
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        id: cp312
+        with:
+          python-version: "3.12.7"
+          cache: "poetry"
+
+      - run: |
+          poetry run ruff check .
+          poetry run mypy .
+          poetry run poetry check
+          poetry run dotenv-linter .env.example
+          poetry run vulture
+
+  check-migrations:
+    name: Check Migrations
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poetry
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        id: cp312
+        with:
+          python-version: "3.12.7"
+          cache: "poetry"
+
+      - run: |
+          poetry run alembic upgrade head
+          poetry run alembic check
+
+  test:
+    name: Tests
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poetry
+        run: pipx install poetry
+      - uses: actions/setup-python@v5
+        id: cp312
+        with:
+          python-version: "3.12.7"
+          cache: "poetry"
+
+      - name: Install plugin
+        run: pip install pytest-github-actions-annotate-failures
+
+      - run: |
+          poetry run pytest --numprocesses logical --dist worksteal
+          poetry run coverage-threshold
